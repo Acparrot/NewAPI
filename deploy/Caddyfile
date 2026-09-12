@@ -1,0 +1,6 @@
+api.jiatuc.cn {
+	encode gzip
+	reverse_proxy new-api:3000
+}
+
+

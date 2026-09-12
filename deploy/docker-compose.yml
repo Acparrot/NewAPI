@@ -1,0 +1,92 @@
+services:
+  new-api:
+    image: calciumion/new-api:latest
+    container_name: new-api
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "${NEW_API_PORT:-127.0.0.1:3000}:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    environment:
+      SQL_DSN: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      REDIS_CONN_STRING: "redis://:${REDIS_PASSWORD}@redis:6379"
+      TZ: "${TZ:-Asia/Shanghai}"
+      FRONTEND_BASE_URL: "${FRONTEND_BASE_URL}"
+      SESSION_SECRET: "${SESSION_SECRET}"
+      CRYPTO_SECRET: "${CRYPTO_SECRET}"
+      ERROR_LOG_ENABLED: "${ERROR_LOG_ENABLED:-true}"
+      BATCH_UPDATE_ENABLED: "${BATCH_UPDATE_ENABLED:-true}"
+      NODE_NAME: "${NODE_NAME:-new-api-node-1}"
+      STREAMING_TIMEOUT: "${STREAMING_TIMEOUT:-300}"
+      RELAY_IDLE_CONN_TIMEOUT: "${RELAY_IDLE_CONN_TIMEOUT:-90}"
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks:
+      - new-api-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -Eq '\"success\"[[:space:]]*:[[:space:]]*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: new-api-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      new-api:
+        condition: service_started
+    networks:
+      - new-api-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - new-api-network
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB}"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - new-api-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pg_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  new-api-network:
+    driver: bridge
+
+
